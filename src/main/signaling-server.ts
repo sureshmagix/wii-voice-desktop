@@ -50,8 +50,12 @@ export class SignalingServer {
   private bindEvents() {
     if (!this.wss) return;
 
-    this.wss.on('connection', (ws: WebSocket) => {
+    this.wss.on('connection', (ws: WebSocket, req: any) => {
       const client: ClientSocket = { ws };
+      const ip = req?.socket?.remoteAddress || '';
+      if (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1') {
+        client.peerInfo = this.hostInfo;
+      }
       this.clients.add(client);
 
       ws.on('message', (raw: RawData) => {
@@ -80,6 +84,25 @@ export class SignalingServer {
   }
 
   private handleMessage(client: ClientSocket, msg: SignalingMessage) {
+    if (!client.peerInfo) {
+      if ('peer' in msg && (msg as any).peer) {
+        client.peerInfo = (msg as any).peer;
+      } else if ('caller' in msg && (msg as any).caller) {
+        client.peerInfo = (msg as any).caller;
+      } else if ('recipient' in msg && (msg as any).recipient) {
+        client.peerInfo = (msg as any).recipient;
+      } else if ('from' in msg && (msg as any).from) {
+        client.peerInfo = {
+          deviceId: (msg as any).from,
+          deviceName: 'LAN Peer',
+          platform: 'desktop',
+          isPluggedIn: true,
+          lanIp: '',
+          signalingPort: 5252,
+          joinedAt: Date.now()
+        };
+      }
+    }
     switch (msg.type) {
       case 'CALL_INVITE': {
         client.peerInfo = msg.caller;

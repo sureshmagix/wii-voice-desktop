@@ -1330,6 +1330,10 @@ export default function App() {
     setConnectionError(null);
 
     try {
+      // 1. Get local microphone stream FIRST
+      const stream = await audioEngineRef.current.getLocalStream(selectedMicId);
+
+      // 2. Start hosting on mDNS and signaling port
       const { port } = await window.voiceAPI.startHosting({
         roomName,
         hostInfo: localInfo,
@@ -1338,11 +1342,21 @@ export default function App() {
       });
       setStandbyPort(port);
 
-      // Reconnect standby socket to the freshly created room signaling server
+      setActiveCall({
+        title: roomName,
+        targetIp: localInfo.lanIp,
+        targetPort: port,
+        startedAt: Date.now(),
+        isHost: true,
+        isRoom: true
+      });
+      setParticipants([localInfo]);
+
+      // 3. Connect socket to room server
       const ws = await connectStandbySocket(port);
       socketRef.current = ws;
 
-      const stream = await audioEngineRef.current.getLocalStream(selectedMicId);
+      // 4. Initialize MeshCoordinator with acquired stream
       const mesh = new MeshCoordinator(
         localInfo,
         (msg) => {
@@ -1362,16 +1376,6 @@ export default function App() {
       meshRef.current = mesh;
       mesh.setLocalStream(stream);
 
-      setActiveCall({
-        title: roomName,
-        targetIp: localInfo.lanIp,
-        targetPort: port,
-        startedAt: Date.now(),
-        isHost: true,
-        isRoom: true
-      });
-
-      setParticipants([localInfo]);
       setIsConnecting(false);
       setRoomNameInput('');
     } catch (err) {
@@ -1397,53 +1401,52 @@ export default function App() {
     setConnectionError(null);
 
     try {
-      const ws = new WebSocket(`ws://${room.hostIp}:${room.hostPort}`);
+      // 1. Acquire local microphone stream FIRST before connecting to avoid race conditions
+      const stream = await audioEngineRef.current.getLocalStream(selectedMicId);
+
+      let ws: WebSocket;
+
+      // 2. Initialize MeshCoordinator FIRST so it is 100% ready for incoming offers/room states
+      const mesh = new MeshCoordinator(
+        localInfo,
+        (msg) => {
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify(msg));
+          }
+        },
+        (peerId, remoteStream) => audioEngineRef.current.attachRemoteStream(peerId, remoteStream),
+        (peerId) => {
+          audioEngineRef.current.detachRemoteStream(peerId);
+          setParticipants(prev => prev.filter(p => p.deviceId !== peerId));
+        },
+        (peerId, peerIsMuted) => {
+          setMutedPeers(prev => ({ ...prev, [peerId]: peerIsMuted }));
+        }
+      );
+      meshRef.current = mesh;
+      mesh.setLocalStream(stream);
+
+      setActiveCall({
+        title: room.roomName,
+        targetIp: room.hostIp,
+        targetPort: room.hostPort,
+        startedAt: Date.now(),
+        isHost: false,
+        isRoom: true
+      });
+      setParticipants([localInfo]);
+
+      // 3. Connect WebSocket to room host
+      ws = new WebSocket(`ws://${room.hostIp}:${room.hostPort}`);
       socketRef.current = ws;
 
-      ws.onopen = async () => {
-        // Send JOIN_REQUEST to join room as participant
+      ws.onopen = () => {
+        setIsConnecting(false);
+        // Send JOIN_REQUEST now that audio and mesh coordinator are completely ready!
         ws.send(JSON.stringify({
           type: 'JOIN_REQUEST',
           peer: localInfo
         }));
-
-        try {
-          const stream = await audioEngineRef.current.getLocalStream(selectedMicId);
-          const mesh = new MeshCoordinator(
-            localInfo,
-            (msg) => {
-              if (ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify(msg));
-              }
-            },
-            (peerId, remoteStream) => audioEngineRef.current.attachRemoteStream(peerId, remoteStream),
-            (peerId) => {
-              audioEngineRef.current.detachRemoteStream(peerId);
-              setParticipants(prev => prev.filter(p => p.deviceId !== peerId));
-            },
-            (peerId, peerIsMuted) => {
-              setMutedPeers(prev => ({ ...prev, [peerId]: peerIsMuted }));
-            }
-          );
-          meshRef.current = mesh;
-          mesh.setLocalStream(stream);
-
-          setActiveCall({
-            title: room.roomName,
-            targetIp: room.hostIp,
-            targetPort: room.hostPort,
-            startedAt: Date.now(),
-            isHost: false,
-            isRoom: true
-          });
-
-          setIsConnecting(false);
-        } catch (err) {
-          console.error('Error starting audio when joining room:', err);
-          setIsConnecting(false);
-          setConnectionError('Microphone access is required to join room.');
-          ws.close();
-        }
       };
 
       ws.onerror = () => {
@@ -1491,8 +1494,10 @@ export default function App() {
         }
       };
     } catch (err) {
+      console.error('Error starting audio when joining room:', err);
       setIsConnecting(false);
-      setConnectionError(`Failed to connect to ${room.hostIp}:${room.hostPort}.`);
+      setConnectionError('Microphone access is required to join room.');
+      endCallCleanly(false);
     }
   };
 

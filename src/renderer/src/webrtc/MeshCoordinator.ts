@@ -107,9 +107,8 @@ export class MeshCoordinator {
     }
 
     pc.ontrack = (evt) => {
-      if (evt.streams && evt.streams[0]) {
-        this.onRemoteStream(info.deviceId, evt.streams[0]);
-      }
+      const stream = (evt.streams && evt.streams[0]) ? evt.streams[0] : new MediaStream([evt.track]);
+      this.onRemoteStream(info.deviceId, stream);
     };
 
     pc.onconnectionstatechange = () => {
@@ -193,8 +192,21 @@ export class MeshCoordinator {
     });
   }
 
-  public async handleOffer(fromId: string, sdp: string) {
-    const node = this.peers.get(fromId);
+  public async handleOffer(fromId: string, sdp: string, peerInfo?: PeerInfo) {
+    let node = this.peers.get(fromId);
+    if (!node) {
+      const fallbackInfo: PeerInfo = peerInfo || {
+        deviceId: fromId,
+        deviceName: `Peer-${fromId.slice(0, 4)}`,
+        platform: 'desktop',
+        isPluggedIn: true,
+        lanIp: '',
+        signalingPort: 5252,
+        joinedAt: Date.now()
+      };
+      this.addPeer(fallbackInfo, false);
+      node = this.peers.get(fromId);
+    }
     if (!node) return;
 
     const offerCollision = node.makingOffer || node.pc.signalingState !== 'stable';
@@ -208,7 +220,11 @@ export class MeshCoordinator {
     await node.pc.setRemoteDescription({ type: 'offer', sdp });
 
     for (const c of node.iceQueue) {
-      await node.pc.addIceCandidate(c);
+      try {
+        await node.pc.addIceCandidate(c);
+      } catch (err) {
+        console.warn('Error applying queued ICE candidate in offer:', err);
+      }
     }
     node.iceQueue = [];
 
@@ -225,6 +241,15 @@ export class MeshCoordinator {
     const node = this.peers.get(fromId);
     if (!node) return;
     await node.pc.setRemoteDescription({ type: 'answer', sdp });
+
+    for (const c of node.iceQueue) {
+      try {
+        await node.pc.addIceCandidate(c);
+      } catch (err) {
+        console.warn('Error applying queued ICE candidate in answer:', err);
+      }
+    }
+    node.iceQueue = [];
   }
 
   public async handleCandidate(fromId: string, candidate: RTCIceCandidateInit) {

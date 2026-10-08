@@ -6,6 +6,7 @@ files:
   - dist
   - dist-electron
 linux:
+  icon: build/icon.png
   maintainer: "Wii Voice <support@wiivoice.local>"
   target:
     - target: AppImage
@@ -20,6 +21,7 @@ linux:
   category: Network
   artifactName: ${productName}-${version}-linux-${arch}.${ext}
 mac:
+  icon: build/icon.icns
   target:
     - target: dmg
       arch:
@@ -39,6 +41,7 @@ mac:
     NSMicrophoneUsageDescription: "Wii Voice requires microphone access for offline peer-to-peer voice calling."
     NSCameraUsageDescription: "Wii Voice requires camera access for voice and video features."
 win:
+  icon: build/icon.ico
   target:
     - target: nsis
       arch:
