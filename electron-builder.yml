@@ -1,0 +1,46 @@
+appId: com.wiivoice.desktop
+productName: WiiVoice
+directories:
+  output: release
+files:
+  - dist
+  - dist-electron
+linux:
+  maintainer: "Wii Voice <support@wiivoice.local>"
+  target:
+    - target: AppImage
+      arch:
+        - x64
+    - target: deb
+      arch:
+        - x64
+    - target: tar.gz
+      arch:
+        - x64
+  category: Network
+  artifactName: ${productName}-${version}-linux-${arch}.${ext}
+mac:
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+    - target: zip
+      arch:
+        - x64
+        - arm64
+  category: public.app-category.utilities
+  artifactName: ${productName}-${version}-mac-${arch}.${ext}
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.inherit.plist
+  hardenedRuntime: false
+  gatekeeperAssess: false
+  extendInfo:
+    NSMicrophoneUsageDescription: "Wii Voice requires microphone access for offline peer-to-peer voice calling."
+    NSCameraUsageDescription: "Wii Voice requires camera access for voice and video features."
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: ${productName}-Setup-${version}.${ext}
